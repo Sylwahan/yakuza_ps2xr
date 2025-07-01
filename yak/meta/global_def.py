@@ -138,7 +138,7 @@ def init(ini_path_dict):
     DIR_REC_VOICE_BIN_WORK = os.path.join(DIR_REC_VOICE, "bin_work")
 
 def init_rebuild(ini_rebuild_dict):
-    global CLEAN_REBUILD, REBUILD_MEDIA, REBUILD_RESOURCE, FLATTEN_ISO, WIDESCREEN_MODE, LITE_MODE, RAISE_SUBTITLES, REPLACE_VOICE_JP, REPLACE_VOICE_KR, BLUE_KIRYU_TALK, OPENING_SUB
+    global CLEAN_REBUILD, REBUILD_MEDIA, REBUILD_RESOURCE, FLATTEN_ISO, WIDESCREEN_MODE, LITE_MODE, RAISE_SUBTITLES, REPLACE_VOICE_JP, REPLACE_VOICE_KR, BLUE_KIRYU_TALK, OPENING_SUB, SUB_TIMING_JP
     CLEAN_REBUILD = ini_rebuild_dict.getboolean("CLEAN_REBUILD")
     REBUILD_MEDIA = [int(x) for x in ini_rebuild_dict["REBUILD_MEDIA"].replace(" ", "").split(",") if x]
     REBUILD_RESOURCE = [x for x in ini_rebuild_dict["REBUILD_RESOURCE"].replace(" ", "").split(",") if x]
@@ -147,6 +147,7 @@ def init_rebuild(ini_rebuild_dict):
     LITE_MODE = ini_rebuild_dict.getboolean("LITE_MODE")
     RAISE_SUBTITLES = ini_rebuild_dict.getboolean("RAISE_SUBTITLES")
     REPLACE_VOICE_JP = ini_rebuild_dict.getboolean("REPLACE_VOICE_JP")
+    SUB_TIMING_JP = ini_rebuild_dict.getboolean("SUB_TIMING_JP")
     REPLACE_VOICE_KR = ini_rebuild_dict.getboolean("REPLACE_VOICE_KR")
     BLUE_KIRYU_TALK = ini_rebuild_dict.getboolean("BLUE_KIRYU_TALK")
     OPENING_SUB = ini_rebuild_dict.getboolean("OPENING_SUB")

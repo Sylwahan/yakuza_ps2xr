@@ -195,7 +195,6 @@ def replace_voice_jp():
         global WARNINGS, VOICE_LIST
         print("Replacing English dub with Japanese...")
         paths_se = []
-        paths_b00 = []
         paths = []
         for f in yak.meta.extract_def.VOICE_SE_Y1_JP:
             path_in = os.path.join(yak.meta.global_def.DIR_REC_VOICE_WORK, f)
@@ -209,7 +208,6 @@ def replace_voice_jp():
             if not os.path.isfile(path_in):
                 WARNINGS.append(f"STEP - Replace English dub\nERROR - Voice file not found...\nPath: {path_in}\nEnglish dub replacement canceled...")
                 return
-            paths_b00.append({"path_in": path_in, "path_rel": os.path.join("MEDIA2", "AUTHOR", f), "path_base_in": yak.meta.global_def.DIR_FILES_ORIG_MERGE, "path_base_out": yak.meta.global_def.DIR_FILES_MOD_MERGE})
         voice_list = b""
         for fkey, f in yak.meta.voice_patch_jp.VOICE_JP_INDEX.items():
             path_in = os.path.join(yak.meta.global_def.DIR_REC_VOICE_WORK, "MEDIA2", "SOUND", f["name"])
@@ -231,11 +229,16 @@ def replace_voice_jp():
             files_done += 1
             if files_done % 500 == 0:
                 print(f"Processed files: {files_done}...")
-        for f in paths_b00:
-            yak.process.process_scene.switch_voice(f["path_in"], f["path_rel"], f["path_base_in"], f["path_base_out"])
-            files_done += 1
-            if files_done % 50 == 0:
-                print(f"Processed files: {files_done}...")
+        for root, dirs, files in os.walk(os.path.join(yak.meta.global_def.DIR_FILES_ORIG_MERGE, "MEDIA2", "AUTHOR")):
+            for f in files:
+                if f.upper().endswith("B00"):
+                    path_orig = os.path.join(root, f)
+                    path_rel = os.path.relpath(path_orig, yak.meta.global_def.DIR_FILES_ORIG_MERGE)
+                    path_patch = os.path.join(yak.meta.global_def.DIR_REC_VOICE_WORK, path_rel)
+                    yak.process.process_scene.switch_voice(path_patch, path_orig, path_rel, yak.meta.global_def.DIR_FILES_ORIG_MERGE, yak.meta.global_def.DIR_FILES_MOD_MERGE, yak.meta.global_def.SUB_TIMING_JP)
+                    files_done += 1
+                    if files_done % 50 == 0:
+                        print(f"Processed files: {files_done}...")
         VOICE_LIST = voice_list + (yak.meta.voice_patch_jp.VOICE_LIST[ISO_ID]["path_length"] - len(voice_list)) * b"\x00"
 
 

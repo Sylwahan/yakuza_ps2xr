@@ -241,6 +241,12 @@ For the US/EUR versions of Yakuza, there is the option to replace the English du
 
 To do so, you will first need to extract either the JP or KR version of the game separately. Copy over everything from `/resource/voice/voice_original` of that extraction, to `/resource/voice/voice_work` of your target version. Make sure the relative paths remain exactly the same. In the rebuild options, enable `REPLACE_VOICE_JP`.
 
+If replacing the English dub, there is also the option to use the Japanese subtitle timings and layout. This matches the Japanese voices a bit better at times, but requires you to manually rework all of the cutscene subtitles, so may not be worth the effort.
+
+You will need to mirror the line layout/structure, with the same number of lines/identifiers, from each cutscene text file in `/resource/talk/talk_work/MEDIA2/AUTHOR` (except the `/MINI` directory) from the JP extraction, to the corresponding text file in the work directory of your target version. Typically the Japanese subtitle layout has fewer lines, so you'll have to rearrange and combine the translated ones to fit. If needed, you can still create more line breaks according to [^4] however.
+
+To use this feature, enable `SUB_TIMING_JP` in the rebuild options.
+
 ### Yakuza 2 Korean Lines
 For the US/EUR/JP versions of Yakuza 2, there is the option to replace the original Korean voice lines, which supposedly were hilariously awful if you know the language, with the re-recorded ones from the KR version of the game.
 
@@ -323,6 +329,9 @@ Moves the cutscene subtitles a bit higher up on the screen, which looks more sen
 
 ` REPLACE_VOICE_JP `\
 Only relevant for the US/EUR versions of Yakuza. Replaces the English dub with the original Japanese voice files.
+
+` SUB_TIMING_JP `\
+If replacing the English dub, this also replaces the subtitle timings/layout with the Japanese ones. Matches a bit better with the Japanese voices at times, but requires manually re-working the subtitles.
 
 ` REPLACE_VOICE_KR `\
 Only relevant for the US/EUR/JP versions of Yakuza 2. Replaces the original Korean voice lines with the re-recorded ones.

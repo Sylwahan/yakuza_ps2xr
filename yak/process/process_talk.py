@@ -6,6 +6,7 @@ import re
 import png
 
 import yak.meta.global_def
+import yak.meta.voice_patch_jp
 import yak.process.process_image
 import yak.talk.talk_chars
 import yak.talk.talk_decoder
@@ -500,40 +501,62 @@ def rebuild_talk_text(path_in_dict, path_out_dict, path_in_txt_orig, path_in_txt
                     lines_rebuild[line_id] = line
             for name_id, name in names_rebuild.items():
                 text_struct["names"][int(name_id)] = name
-            for line_id, line in lines_rebuild.items():
-                try:
-                    # lines_dict[line_id]["main_line"] = italicize_line(line) # process internal italic tag
-                    lines_dict[line_id]["main_line"] = line
-                # if new lines has been added for the edited text, copy values from the previous one, and create a new entry
-                except KeyError:
-                    if line == "Locate(BottomCenter)" or line == " " or line == "":
-                        continue
-                    # disable adding new lines outside subtitles
-                    if not path_rel.startswith("MEDIA2"):
-                        em = f"STEP - Rebuild TALK text\nERROR - Line in TALK file doesn't exist in the original...\nPath: {path_in_full}\nLine ID: {line_id}\nLine: {line}\n"
-                        em += "Check the line ID, that the formatting is correct, and that no new lines have been added..."
-                        raise Exception(em)
+            
+            # remove all old entries and create new ones if replacing the JP subtitle timings, to prevent original lines in the json from reappearing
+            if yak.meta.global_def.REPLACE_VOICE_JP and yak.meta.global_def.SUB_TIMING_JP and os.path.basename(os.path.dirname(path_rel)) in  yak.meta.voice_patch_jp.SUB_JP_BIN:
+                text_struct["text_sections"] = []
+                for line_id, line in lines_rebuild.items():
                     split_id = line_id.split("_")
                     t_sec = int(split_id[0])
                     t_mg = int(split_id[1])
                     t_sg = int(split_id[2])
-                    parent_mg = text_struct["text_sections"][t_sec]["text_maingroups"][t_mg]
+                    if t_sec > (len(text_struct["text_sections"]) - 1):
+                        text_struct["text_sections"].append({"id": t_sec, "bytes": f"{t_sec.to_bytes(2, byteorder='little').hex()}000100000000", "text_maingroups": []})
+                    if t_mg > (len(text_struct["text_sections"][t_sec]["text_maingroups"]) - 1):
+                        text_struct["text_sections"][t_sec]["text_maingroups"].append({"id": t_sec, "bytes": "000000000000000000010f6400040000", "text_subgroups": []})
+                    line_entry = {"id": t_sg, "full_id": line_id, "bytes": "000116160000000000000000", "main_line": line, "main_line_spec_op": "00", "meta_lines": [], "saved_meta_lines": []}
+                    text_struct["text_sections"][t_sec]["text_maingroups"][t_mg]["text_subgroups"].append(line_entry)
+                for t_sec in text_struct["text_sections"]:
+                    for t_mg in t_sec["text_maingroups"]:
+                        if len(t_mg["text_subgroups"]) > 1:
+                            t_mg["bytes"] = "000000000000000000020f6400040000"
+                            for t_sg in t_mg["text_subgroups"]:
+                                t_sg["bytes"] = "000112160000000000000000"
+            else:
+                for line_id, line in lines_rebuild.items():
                     try:
-                        prev_sg = parent_mg["text_subgroups"][t_sg-1]
-                        # if not path_rel.startswith("MEDIA2"):
-                        #     wm = f"STEP - Rebuild TALK text\nWARNING - Line in TALK file doesn't exist in the original...\nPath: {path_in_full}\nLine ID: {line_id}\nLine: {line}\n"
-                        #     wm += f"The new line was added, but this might break some dialogue scripts, so make sure it's not a mistake..."
-                        #     warnings.append(wm)
-                    except IndexError:
-                        em = f"STEP - Rebuild TALK text\nERROR - Line in TALK file doesn't exist in the original...\nPath: {path_in_full}\nLine ID: {line_id}\nLine: {line}\n"
-                        em += "Check the line ID, that the formatting is correct, and that no new lines have been added..."
-                        raise Exception(em)
-                    new_sg = copy.deepcopy(prev_sg)
-                    new_sg["id"] = t_sg
-                    new_sg["full_id"] = line_id
-                    # new_sg["main_line"] = italicize_line(line) # process internal italic tag
-                    new_sg["main_line"] = line
-                    parent_mg["text_subgroups"].append(new_sg)
+                        # lines_dict[line_id]["main_line"] = italicize_line(line) # process internal italic tag
+                        lines_dict[line_id]["main_line"] = line
+                    # if new lines has been added for the edited text, copy values from the previous one, and create a new entry
+                    except KeyError:
+                        if line == "Locate(BottomCenter)" or line == " " or line == "":
+                            continue
+                        # disable adding new lines outside subtitles
+                        if not path_rel.startswith("MEDIA2"):
+                            em = f"STEP - Rebuild TALK text\nERROR - Line in TALK file doesn't exist in the original...\nPath: {path_in_full}\nLine ID: {line_id}\nLine: {line}\n"
+                            em += "Check the line ID, that the formatting is correct, and that no new lines have been added..."
+                            raise Exception(em)
+                        split_id = line_id.split("_")
+                        t_sec = int(split_id[0])
+                        t_mg = int(split_id[1])
+                        t_sg = int(split_id[2])
+                        parent_mg = text_struct["text_sections"][t_sec]["text_maingroups"][t_mg]
+                        try:
+                            prev_sg = parent_mg["text_subgroups"][t_sg-1]
+                            # if not path_rel.startswith("MEDIA2"):
+                            #     wm = f"STEP - Rebuild TALK text\nWARNING - Line in TALK file doesn't exist in the original...\nPath: {path_in_full}\nLine ID: {line_id}\nLine: {line}\n"
+                            #     wm += f"The new line was added, but this might break some dialogue scripts, so make sure it's not a mistake..."
+                            #     warnings.append(wm)
+                        except IndexError:
+                            em = f"STEP - Rebuild TALK text\nERROR - Line in TALK file doesn't exist in the original...\nPath: {path_in_full}\nLine ID: {line_id}\nLine: {line}\n"
+                            em += "Check the line ID, that the formatting is correct, and that no new lines have been added..."
+                            raise Exception(em)
+                        new_sg = copy.deepcopy(prev_sg)
+                        new_sg["id"] = t_sg
+                        new_sg["full_id"] = line_id
+                        # new_sg["main_line"] = italicize_line(line) # process internal italic tag
+                        new_sg["main_line"] = line
+                        parent_mg["text_subgroups"].append(new_sg)
 
 
         path_out_file = f"{os.path.join(path_out_dict, path_rel)}.json"

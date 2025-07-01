@@ -1,4 +1,6 @@
+import copy
 import os
+import struct
 
 import yak.meta.voice_patch_jp
 
@@ -7,13 +9,21 @@ class CutsceneEntry:
     def __init__(self, in_data):
         self._in_data = in_data
         self._is_voice = True if in_data[92:96] == b"\x15\x00\x00\x00" else False
+        self._is_sub = True if (in_data[92:96] == b"\x00\x00\x00\x00" and in_data[108:112] == b"\x45\x00\x00\x00") else False
         self._index_pos = 0
         self._start_time = in_data[52:56]
         self._end_time = in_data[56:60]
         self._voice_file = int.from_bytes(in_data[140:144], byteorder="little")
+        self._sub_line = int.from_bytes(in_data[124:128], byteorder="little")
+        self._sub_lang = int.from_bytes(in_data[140:144], byteorder="little")
     
     def get_bytes(self):
-        entry_data = self._in_data[:52] + self._start_time + self._end_time + self._in_data[60:140] + self._voice_file.to_bytes(4, byteorder="little")
+        if self._is_voice:
+            entry_data = self._in_data[:52] + self._start_time + self._end_time + self._in_data[60:140] + self._voice_file.to_bytes(4, byteorder="little")
+        elif self._is_sub:
+            entry_data = self._in_data[:52] + self._start_time + self._end_time + self._in_data[60:124] + self._sub_line.to_bytes(4, byteorder="little") + self._in_data[128:140] + self._sub_lang.to_bytes(4, byteorder="little")
+        else:
+            entry_data = self._in_data[:52] + self._start_time + self._end_time + self._in_data[60:]
         return entry_data
 
     @property
@@ -38,8 +48,26 @@ class CutsceneEntry:
         self._voice_file = value
 
     @property
+    def sub_line(self):
+        return self._sub_line
+    @sub_line.setter
+    def sub_line(self, value):
+        self._sub_line = value
+
+    @property
+    def sub_lang(self):
+        return self._sub_lang
+    @sub_lang.setter
+    def sub_lang(self, value):
+        self._sub_lang = value
+
+    @property
     def is_voice(self):
         return self._is_voice
+
+    @property
+    def is_sub(self):
+        return self._is_sub
 
 
 class CutsceneFile:
@@ -157,50 +185,135 @@ class CutsceneFile:
             i += 1
         return voice_entries
 
+    def get_sub_entries(self, jp_only=False):
+        sub_entries = []
+        i = 0
+        for entry in self.entries:
+            if entry.is_sub:
+                if jp_only and entry.sub_lang != 0:
+                    continue
+                index = self.entries.index(entry)
+                entry, index_splits = self.get_entry(index)
+                sub_entries.append({"entry_index": i, "entry": entry, "index_splits": index_splits})
+            i += 1
+        return sub_entries
+
     def print_entry(self, i):
         print(self.entries[i].get_bytes().hex())
         print(f"POS: {self.entries[i].index_entries[0]["pos"]}, START: {self.entries[i].index_entries[0]["start"].hex()}, END: {self.entries[i].index_entries[0]["end"].hex()}")
 
 
-def switch_voice(path_in_src, path_rel, path_base_in, path_base_out):
-    with open(path_in_src, "rb") as file_in:
-        data_in = file_in.read()
+def switch_voice(path_patch, path_orig, path_rel, path_base_in, path_base_out, do_sub_switch):
+    file_name = os.path.basename(path_rel)
+    do_audio_switch = False
+    cutscene_old_sub_entry = []
+    cutscene_src_voice_entry = []
+    start_add_sub = 0
+    start_add_voice = 0
+    if os.path.isfile(path_patch):
+        do_audio_switch = True
+        with open(path_patch, "rb") as file_in:
+            data_in = file_in.read()
 
-    # apply voice hiccup patches before switching out voices
-    for key, patch_list in yak.meta.voice_patch_jp.VOICE_JP_B00_PATCH.items():
-        if key == os.path.basename(path_rel):
-            for patch_pos, patch_bytes in patch_list:
+        # apply voice hiccup patches before switching out voices
+        try:
+            for patch_pos, patch_bytes in yak.meta.voice_patch_jp.VOICE_JP_B00_PATCH[file_name]:
                 data_in = data_in[:patch_pos] + bytes.fromhex(patch_bytes.replace(" ", "")) + data_in[patch_pos + 4:]
+        except KeyError:
+            pass
 
-    cutscene_src_num_split = int.from_bytes(data_in[4:8], byteorder="little")
-    cutscene_src_start = int.from_bytes(data_in[16:20], byteorder="little")
-    cutscene_src_num_entry = int.from_bytes(data_in[20:24], byteorder="little")
-    cutscene_src_end = int.from_bytes(data_in[24:28], byteorder="little")
-    cutscene_src = CutsceneFile(data_in[cutscene_src_start:cutscene_src_end], cutscene_src_num_entry, cutscene_src_num_split)
-    cutscene_src_voice_entry = cutscene_src.get_voice_entries()
-    cutscene_src_voice_entry.reverse()
-    path_in_trg = os.path.join(path_base_in, path_rel)
-    with open(path_in_trg, "rb") as file_in:
+        # collect voice entries from JP
+        cutscene_src_num_split = int.from_bytes(data_in[4:8], byteorder="little")
+        cutscene_src_start = int.from_bytes(data_in[16:20], byteorder="little")
+        cutscene_src_num_entry = int.from_bytes(data_in[20:24], byteorder="little")
+        cutscene_src_end = int.from_bytes(data_in[24:28], byteorder="little")
+        cutscene_src = CutsceneFile(data_in[cutscene_src_start:cutscene_src_end], cutscene_src_num_entry, cutscene_src_num_split)
+        cutscene_src_voice_entry = cutscene_src.get_voice_entries()
+        cutscene_src_voice_entry.reverse()
+
+    # initialize original scenefile
+    with open(path_orig, "rb") as file_in:
         data_in = file_in.read()
     cutscene_old_num_split = int.from_bytes(data_in[4:8], byteorder="little")
     cutscene_old_start = int.from_bytes(data_in[16:20], byteorder="little")
     cutscene_old_num_entry = int.from_bytes(data_in[20:24], byteorder="little")
     cutscene_old_end = int.from_bytes(data_in[24:28], byteorder="little")
     cutscene_old = CutsceneFile(data_in[cutscene_old_start:cutscene_old_end], cutscene_old_num_entry, cutscene_old_num_split)
-    cutscene_old_voice_entry = cutscene_old.get_voice_entries()
-    start_add = cutscene_old_voice_entry[0]["entry_index"]
-    for entry_dict in cutscene_src_voice_entry:
-        entry_dict["entry"].voice_file = yak.meta.voice_patch_jp.VOICE_JP_INDEX[entry_dict["entry"].voice_file]["index_new"]
-        cutscene_old.add_entry(start_add, entry_dict["entry"], entry_dict["index_splits"])
-    for entry_dict in cutscene_old_voice_entry:
-        cutscene_old.remove_entry_by_entry(entry_dict["entry"])
+
+    # collect subtitle entries from JP
+    if do_sub_switch:
+        cutscene_old_sub_entry = cutscene_old.get_sub_entries()
+        if cutscene_old_sub_entry:
+            start_add_sub = cutscene_old_sub_entry[0]["entry_index"]
+
+    # collect voice entries from US/EUR
+    if do_audio_switch:
+        cutscene_old_voice_entry = cutscene_old.get_voice_entries()
+        if cutscene_old_voice_entry:
+            start_add_voice = cutscene_old_voice_entry[0]["entry_index"]
+
+    # change to correct voice file index, remove old entry, add new
+    if do_audio_switch and cutscene_src_voice_entry:
+        for entry_dict in cutscene_src_voice_entry:
+            entry_dict["entry"].voice_file = yak.meta.voice_patch_jp.VOICE_JP_INDEX[entry_dict["entry"].voice_file]["index_new"]
+            cutscene_old.add_entry(start_add_voice, entry_dict["entry"], entry_dict["index_splits"])
+        for entry_dict in cutscene_old_voice_entry:
+            cutscene_old.remove_entry_by_entry(entry_dict["entry"])
+
+    # get old JP sub entries, change to correct lang, add new entry, remove old entry
+    if do_sub_switch and cutscene_old_sub_entry:
+        exist_langs = []
+        jp_entries = []
+        for entry_dict in cutscene_old_sub_entry:
+            if entry_dict["entry"].sub_lang == 0:
+                jp_entries.append(entry_dict)
+            if entry_dict["entry"].sub_lang not in exist_langs:
+                exist_langs.append(entry_dict["entry"].sub_lang)
+        # hacks to fix missing/incorrect entries compared to scenes from JP files
+        if path_rel.endswith("AUTH_CHAPTER01_007.B00"):
+            new_jp_entry = copy.deepcopy(jp_entries[0])
+            new_jp_entry["entry"].start_time = b"\x00\x00\xA8\x41"
+            new_jp_entry["entry"].end_time = b"\x00\x00\x01\x43"
+            new_jp_entry["index_splits"][0]["start"] = new_jp_entry["entry"].start_time
+            new_jp_entry["index_splits"][0]["end"] = new_jp_entry["entry"].end_time
+            for entry_dict in jp_entries:
+                entry_dict["entry_index"] = entry_dict["entry_index"] + 1
+                entry_dict["entry"].sub_line = entry_dict["entry"].sub_line + 1
+                entry_dict["index_splits"][0]["i_pos"] = entry_dict["index_splits"][0]["i_pos"] + 1
+            jp_entries.insert(0, new_jp_entry)
+        elif path_rel.endswith("AUTH_CHAPTER10_008.B00"):
+            jp_entries[1]["entry"].start_time = b"\x00\x00\xFF\x43"
+            jp_entries[1]["index_splits"][0]["start"] = jp_entries[1]["entry"].start_time
+        elif path_rel.endswith("AUTH_SUB2_S02_BAR_I.B00"):
+            jp_entries[3]["entry"].start_time = b"\x00\x00\x8E\x43"
+            jp_entries[3]["entry"].end_time = b"\x00\x80\xAA\x43"
+            jp_entries[3]["index_splits"][0]["start"] = jp_entries[3]["entry"].start_time
+            jp_entries[3]["index_splits"][0]["end"] = jp_entries[3]["entry"].end_time
+            jp_entries[4]["entry"].start_time = b"\x00\x80\xAA\x43"
+            jp_entries[4]["entry"].end_time = b"\x00\x00\xE6\x43"
+            jp_entries[4]["index_splits"][0]["start"] = jp_entries[4]["entry"].start_time
+            jp_entries[4]["index_splits"][0]["end"] = jp_entries[4]["entry"].end_time
+        jp_entries.reverse()
+        exist_langs.reverse()
+        for lang in exist_langs:
+            for entry_dict in jp_entries:
+                entry_dict_copy = copy.deepcopy(entry_dict)
+                entry_dict_copy["entry"].sub_lang = lang
+                cutscene_old.add_entry(start_add_sub, entry_dict_copy["entry"], entry_dict_copy["index_splits"])
+        for entry_dict in cutscene_old_sub_entry:
+            cutscene_old.remove_entry_by_entry(entry_dict["entry"])
+
+    if not (cutscene_src_voice_entry or cutscene_old_sub_entry):
+        return
+
+    # read in modified scene, propagate to all copies
     cutscene_new_data = cutscene_old.get_complete_bytes()
     cutscene_new_num_entry = cutscene_old.num_entry
     cutscene_new_num_split = cutscene_old.num_splits
     offset_len = len(cutscene_new_data) - (cutscene_old_end - cutscene_old_start)
     offset_num = cutscene_new_num_entry - cutscene_old_num_entry
     b_num = 0
-    path_b = path_in_trg
+    path_b = os.path.join(path_base_in, path_rel)
     while os.path.isfile(path_b):
         with open(path_b, "rb") as file_in:
             data_in = file_in.read()
